@@ -1,4 +1,5 @@
 #include "k_means.h"
+#include "cukmeans.h"
 #include "parameter.h"
 #include "cukmeans.h"
 
@@ -12,7 +13,13 @@ int main(int argc, char* argv[])
     param.load_conf(argv[1]);
     param.show();
 
+/*
     K_means k_means;
+    k_means.init(param);
+    k_means.do_cluster();
+    k_means.write();
+*/
+    cukmeans k_means;
     k_means.init(param);
     k_means.do_cluster();
     k_means.write();
