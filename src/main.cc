@@ -1,5 +1,6 @@
 #include "k_means.h"
 #include "parameter.h"
+#include "cukmeans.h"
 
 int main(int argc, char* argv[])
 {

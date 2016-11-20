@@ -189,8 +189,6 @@ float K_means::assign_centroid()
 
 int K_means::calculate_new_centroid()
 {
-    _old_cent_mat = _cent_mat;
-
     for (int ii = 0; ii < _class_dim; ii++) {
         int count = 0;
         vector<float> data_sum_vec;
