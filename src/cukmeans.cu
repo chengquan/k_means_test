@@ -24,13 +24,12 @@ int cukmeans::init(Parameter &param)
     _cent_mat = new cuMatrix<float>(_class_dim, _feat_dim, 1);
     // choose initial centroids
     memcpy(_cent_mat->getHost(), _data_mat->getHost(), sizeof(float) * _class_dim * _feat_dim);
+    _cent_mat->toGpu();
 
     _assigned_vec = new cuMatrix<int>(_sample_num, 1, 1);
     _min_distance = new cuMatrix<float>(_sample_num, 1, 1);
     _distance = new cuMatrix<float>(_sample_num, _class_dim, 1);
     _ave_distance = new cuMatrix<float>(1, 1, 1);
-
-    _assigned_vec->toGpu();
 
     float ave_dist = assign_centroid();
     INFO("init average distance = %f\n", ave_dist);
@@ -187,17 +186,18 @@ __global__ void g_distance(float* data_mat, float* cent_mat, float* distance,
 *根据距离计算出每个点离那个中心点最近，并且将距离记录在min_distance中
 *注意　class_dim 不要大于1024
 */
-__global__ void g_assign_centroid(float* distance, 
+__global__ void g_assign_centroid(
+        float* distance, 
         float* min_distance,
         int* assign_centroid,
         int sample_num,
         int class_dim){
     extern __shared__ float block_min[];
-    int* block_assign_centroid = (int*)block_min + sizeof(float) * class_dim;
+    int* block_assign_centroid = (int*)block_min + class_dim;
 
     int class_id = threadIdx.x;
     int sample_id = blockIdx.x;
-    block_min[class_id] = distance[sample_id * sample_num + class_id];
+    block_min[class_id] = distance[sample_id * class_dim + class_id];
     block_assign_centroid[class_id] = class_id;
     //reduce 
     int len = blockDim.x;
@@ -213,13 +213,17 @@ __global__ void g_assign_centroid(float* distance,
             //TODO 是大于等于还是大于？
             if(value1 > value2){
                 block_min[tid] = value2;
-                block_assign_centroid[tid] = tid + skip;
+                block_assign_centroid[tid] = block_assign_centroid[tid + skip];
             }
         }
         else{
             return;
         }
         len = (len + 1) >> 1;
+//        if(blockIdx.x == 4){
+//            printf("tix %d assign %d dis %f len %d\n", class_id, block_assign_centroid[class_id], 
+//                    block_min[class_id], len);
+//        }
     }
     if(tid == 0)
     {
@@ -230,7 +234,7 @@ __global__ void g_assign_centroid(float* distance,
 
 /*
    reduce sum 操作
-*/
+ */
 __global__ void g_avr_distance(
         float* min_distance,
         float* ave_distance,
@@ -268,9 +272,9 @@ __global__ void g_avr_distance(
 
 /*
  * 将每个节点指向距离他最近的中心节点
-* 复杂度O(n^3)
-* 1)计算优化，先计算出每个点到中心的计算
-*/
+ * 复杂度O(n^3)
+ * 1)计算优化，先计算出每个点到中心的计算
+ */
 float cukmeans::assign_centroid()
 {
     dim3 block_dim(_sample_num);
@@ -282,7 +286,7 @@ float cukmeans::assign_centroid()
     /*
      * TODO 通过shared_memery进行访存优化
      */
-    g_distance<<<block_dim, thread_dim, _class_dim * sizeof(float)>>>(
+    g_distance<<<block_dim, thread_dim, _class_dim * sizeof(float),0>>>(
             _data_mat->getDev(),
             _cent_mat->getDev(),
             _distance->getDev(),
@@ -291,20 +295,28 @@ float cukmeans::assign_centroid()
             _feat_dim);
     checkCudaErrors(cudaStreamSynchronize(0));
     getLastCudaError("g_distance");
+    //    _distance->toCpu();
+    //    _distance->print();
+    //    exit(0);
 
     block_dim = dim3(_sample_num);
     thread_dim = dim3(_class_dim);
 
-    g_assign_centroid<<<block_dim, thread_dim, (sizeof(float) + sizeof(int)) * _class_dim>>>(
-        _distance->getDev(),
-        _min_distance->getDev(),
-        _assigned_vec->getDev(),
-        _sample_num,
-        _class_dim);
+    g_assign_centroid<<<block_dim, thread_dim, (2 * sizeof(float)) * _class_dim,0>>>(
+            _distance->getDev(),
+            _min_distance->getDev(),
+            _assigned_vec->getDev(),
+            _sample_num,
+            _class_dim);
     checkCudaErrors(cudaStreamSynchronize(0));
     getLastCudaError("g_assign_centroid");
+    //_assigned_vec->toCpu();
+    //_assigned_vec->print();
+    //_min_distance->toCpu();
+   // _min_distance->print();
+    //exit(0);
 
-    g_avr_distance<<<dim3(1), dim3(256), sizeof(float) * 256>>>(
+    g_avr_distance<<<dim3(1), dim3(256), sizeof(float) * 256,0>>>(
             _min_distance->getDev(),
             _ave_distance->getDev(),
             _sample_num);
@@ -316,8 +328,8 @@ float cukmeans::assign_centroid()
 }
 
 /*
-* 根据每个节点的指向，算出距离的平均值作为新的中心
-*/
+ * 根据每个节点的指向，算出距离的平均值作为新的中心
+ */
 __global__ void g_calculate_new_centroid(float* data_mat, float* cent_mat, int* assign_centroid,
         int sample_num, int class_dim, int feat_dim){
     int class_id = blockIdx.x;
@@ -327,13 +339,12 @@ __global__ void g_calculate_new_centroid(float* data_mat, float* cent_mat, int* 
     sum[feat_id] = 0;
     for(int i = 0; i < sample_num; i++){
         if(class_id == assign_centroid[i]){
-            float* cur_data_mat = data_mat + feat_id * feat_dim;
-            sum[feat_id] += cur_data_mat[feat_id];
+            sum[feat_id] += data_mat[i * feat_dim + feat_id];
             count += 1;
         }
     }
     if(count == 0 && feat_id == 0){
-        printf("count == 0");
+        printf("error count == 0\n");
     }
     cent_mat[class_id * feat_dim + feat_id] = sum[feat_id] / count;
 }
@@ -347,7 +358,10 @@ int cukmeans::calculate_new_centroid()
         printf("feat_dim > 1024");
         exit(0);
     }
-    g_calculate_new_centroid<<<block_dim, thread_dim, sizeof(float) * _feat_dim>>>(
+    //_cent_mat->toCpu();
+    //_cent_mat->print();
+    //printf("\n");
+    g_calculate_new_centroid<<<block_dim, thread_dim, sizeof(float) * _feat_dim, 0>>>(
             _data_mat->getDev(),
             _cent_mat->getDev(),
             _assigned_vec->getDev(),
@@ -356,6 +370,9 @@ int cukmeans::calculate_new_centroid()
             _feat_dim);
     checkCudaErrors(cudaStreamSynchronize(0));
     getLastCudaError("g_calculate_new_centroid");
+//    _cent_mat->toCpu();
+//    _cent_mat->print();
+//    exit(0);
 }
 
 int cukmeans::write()

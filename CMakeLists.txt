@@ -20,9 +20,9 @@ include_directories (${CUDA_INCLUDE_DIRS})
 include_directories ("${CUDA_INCLUDE_DIRS}/../samples/common/inc")
 set(CUDA_SEPARABLE_COMPILATION ON)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g -fPIC -m64 -Wall -D__TRAIN_DEBUG__")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g -fPIC -m64 -Wall -D__TRAIN_DEBUG__")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__TRAIN_OUTPUT_RESULT__")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O3 -fPIC -m64")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O3 -fPIC -m64")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx -ffast-math")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")
 

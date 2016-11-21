@@ -180,6 +180,7 @@ float K_means::assign_centroid()
             }
         }
         _assigned_vec[ii] = choose_id;
+        printf("%f \n", min_distance);
         _centroid_cnt_vec[choose_id]++;
         //
         ave_distance += min_distance;
